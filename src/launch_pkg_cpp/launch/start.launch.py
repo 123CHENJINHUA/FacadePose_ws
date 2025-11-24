@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""
+Launch file to start the full system: RealSense camera, IMU odometry, vision pose estimation, and visualization.
+"""
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch.conditions import IfCondition
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description():
+    # Declare configurable launch arguments
+    declare_enable_realsense = DeclareLaunchArgument('enable_realsense', default_value='true', description='Start RealSense camera')
+
+    declare_depth_topic = DeclareLaunchArgument('depth_topic', default_value='/camera/camera/aligned_depth_to_color/image_raw')
+    declare_color_topic = DeclareLaunchArgument('color_topic', default_value='/camera/camera/color/image_raw')
+    declare_camera_info_topic = DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera/color/camera_info')
+    declare_imu_quat_topic = DeclareLaunchArgument('imu_quat_topic', default_value='/imu/quaternion')
+
+    # New: rosbag play parameters (set here so you can pass them via this launch)
+    declare_bag_name = DeclareLaunchArgument('bag_name', default_value='', description='Bag folder name under records; leave empty to use latest')
+    declare_rate = DeclareLaunchArgument('rate', default_value='1.0', description='Playback rate for rosbag play')
+
+    # Include RealSense launch (if available)
+    realsense_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('realsense2_camera'),
+                'launch',
+                'rs_launch.py'
+            ])
+        ]),
+        launch_arguments={
+            'enable_depth': 'true',
+            'enable_color': 'true',
+            'align_depth.enable': 'true',
+            'pointcloud.enable': 'true',
+            'rgb_camera.color_profile': '640x480x60',
+            'depth_module.depth_profile': '640x480x60',
+        }.items(),
+        condition=IfCondition(LaunchConfiguration('enable_realsense'))
+    )
+
+    # IMU odometry node
+    imu_node = Node(
+        package='imu_pose_pkg',
+        executable='imu_pose_node',
+        name='imu_pose_node',
+        output='screen'
+    )
+
+    # Vision pose node
+    vision_node = Node(
+        package='vision_pose_pkg',
+        executable='vision_pose_node',
+        name='vision_pose_node',
+        parameters=[{
+            'depth_topic': LaunchConfiguration('depth_topic'),
+            'color_topic': LaunchConfiguration('color_topic'),
+            'camera_info_topic': LaunchConfiguration('camera_info_topic'),
+            'output_topic': '/vision_pose',
+            'publish_rate': 30.0,
+            'min_plane_points': 300,
+            'plane_distance_threshold': 0.02,
+            'voxel_size': 0.015,
+        }],
+        output='screen'
+    )
+
+    vis_node = Node(
+        package='vis_pkg',
+        executable='vis_node',
+        name='vision_pose_viz',
+        parameters=[{
+            'image_topic': LaunchConfiguration('color_topic'),
+            'pose_topic': '/vision_pose',
+            'imu_quat_topic': LaunchConfiguration('imu_quat_topic'),
+            # camera intrinsics can be overridden here if desired
+            # 'fx': 525.0, 'fy': 525.0, 'cx': 319.5, 'cy': 239.5
+        }],
+        output='screen'
+    )
+
+    # Include rosbag play with launch arguments; its launch will Shutdown when playback finishes
+    def _include_play(context, *args, **kwargs):
+        bag_name = LaunchConfiguration('bag_name').perform(context)
+        rate = LaunchConfiguration('rate').perform(context)
+        launch_args = {}
+        if bag_name:
+            launch_args['bag_name'] = bag_name
+        if rate:
+            launch_args['rate'] = rate
+        play_include = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                PathJoinSubstitution([
+                    FindPackageShare('facade_record_pkg'),
+                    'launch',
+                    'play.launch.py'
+                ])
+            ]),
+            launch_arguments=launch_args.items() if launch_args else None
+        )
+        return [play_include]
+
+    play_launch = OpaqueFunction(function=_include_play)
+
+    ld = LaunchDescription()
+
+    ld.add_action(declare_enable_realsense)
+    ld.add_action(declare_depth_topic)
+    ld.add_action(declare_color_topic)
+    ld.add_action(declare_camera_info_topic)
+    ld.add_action(declare_imu_quat_topic)
+    ld.add_action(declare_bag_name)
+    ld.add_action(declare_rate)
+    # ld.add_action(realsense_launch)
+    # ld.add_action(imu_node)
+    ld.add_action(vision_node)
+    ld.add_action(vis_node)
+    ld.add_action(play_launch)
+
+    return ld
+
+
+if __name__ == '__main__':
+    generate_launch_description()
