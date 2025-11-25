@@ -75,10 +75,10 @@ def generate_launch_description():
         executable='fusion_node',
         name='fusion_node',
         parameters=[{
-            'input_pose_topic': '/vision_pose',
-            'input_imu_topic': LaunchConfiguration('imu_quat_topic'),
+            'vision_pose_topic': '/vision_pose',
+            'imu_quat_topic': LaunchConfiguration('imu_quat_topic'),
+            'imu_correct_topic': '/imu_corrected_pose',
             'output_topic': '/fusion_pose',
-            'publish_rate': 30.0,
         }],
         output='screen'
     )

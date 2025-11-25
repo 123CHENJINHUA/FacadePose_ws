@@ -66,21 +66,18 @@ class VisionPoseEstimator:
         # 1. Get 2D points and find bounding box
         plane_points_3d = np.asarray(plane['pcd'].points)
         if plane_points_3d.shape[0] < 20: # Need enough points to form a reliable plane
-            # print("Not enough 3D points to form a plane")
             return None, None, None
 
         plane_points_2d, _ = cv2.projectPoints(plane_points_3d, np.zeros(3), np.zeros(3), self.camera_matrix, self.dist_coeffs)
         plane_points_2d = np.squeeze(plane_points_2d).astype(int)
 
         if plane_points_2d.ndim == 1 or len(plane_points_2d) < 2:
-            # print("Invalid 2D points")
             return None, None, None
 
         x, y, w, h = cv2.boundingRect(plane_points_2d)
         
         # Ensure the bounding box is of a minimum size
         if w < 20 or h < 20:
-            # print("Bounding box is too small")
             return None, None, None
 
         # 2. Crop the image, add some padding
@@ -90,7 +87,6 @@ class VisionPoseEstimator:
         
         cropped_image = image[y_start:y_end, x_start:x_end]
         if cropped_image.size == 0:
-            # print("Cropped image is empty")
             return None, None, None
 
         # 3. Grayscale and Canny
@@ -101,7 +97,6 @@ class VisionPoseEstimator:
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=30, minLineLength=20, maxLineGap=10)
 
         if lines is None:
-            # print("No lines found")
             return None, None, None
 
         # 5. Find the longest line
@@ -115,14 +110,12 @@ class VisionPoseEstimator:
                 longest_line = (x1, y1, x2, y2)
 
         if longest_line is None:
-            # print("Failed to find longest line")
             return None, None, None
         
         # Ensure normal is a numpy array and normalized
         normal = np.array(plane['normal'], dtype=np.float64).reshape(3)
         norm_val = np.linalg.norm(normal)
         if norm_val == 0 or np.isnan(norm_val):
-            # print("Invalid normal vector")
             return None, None, None
         normal = normal / norm_val
 
@@ -131,6 +124,7 @@ class VisionPoseEstimator:
             normal = -normal
 
         x1, y1, x2, y2 = longest_line
+
 
         # 计算图像直线的齐次表示 (l^T * x = 0)
         p1_h = np.array([x1, y1, 1.0])
@@ -191,13 +185,8 @@ class VisionPoseEstimator:
             R_total = R_normal
         else:
             a_proj = a_proj / a_proj_norm
-
-            # 计算与直线方向的夹角（用于判断是否接近 180°）
-            dot_av = np.clip(np.dot(a_proj, v_c), -1.0, 1.0)
-            angle_av = np.degrees(np.arccos(dot_av))  # 0~180
-
-            # 仅当接近 180°（例如 >165°）才翻转，避免不必要翻转
-            if angle_av > 165.0:
+            # 保证旋转角为锐角：若投影与线方向点积为负，翻转 v_c
+            if np.dot(a_proj, v_c) < 0:
                 v_c = -v_c
 
             # 计算在平面内从 a_proj 旋转到 v_c 的角度与方向

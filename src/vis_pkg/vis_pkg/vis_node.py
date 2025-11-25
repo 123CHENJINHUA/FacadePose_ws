@@ -18,31 +18,34 @@ class VisionPoseVizNode(Node):
         super().__init__('vis_node')
 
         self.declare_parameter('image_topic', '/camera/camera/color/image_raw')
-        self.declare_parameter('pose_topic', '/vision_pose')
+        self.declare_parameter('vision_topic', '/vision_pose')
         self.declare_parameter('fusion_pose_topic', '/fusion_pose')
         self.declare_parameter('output_frame', 'camera_link')
         self.declare_parameter('draw_length', 0.05)
         self.declare_parameter('draw_thickness', 3)
         # use IMU quaternion topic from imu_pose_node
-        self.declare_parameter('imu_quat_topic', 'imu/quaternion')
+        self.declare_parameter('imu_topic', '/imu_corrected_pose')
 
         self.image_topic = self.get_parameter('image_topic').value
-        self.pose_topic = self.get_parameter('pose_topic').value
+        self.vision_topic = self.get_parameter('vision_topic').value
         self.fusion_pose_topic = self.get_parameter('fusion_pose_topic').value
         self.output_frame = self.get_parameter('output_frame').value
         self.draw_length = float(self.get_parameter('draw_length').value)
         self.draw_thickness = int(self.get_parameter('draw_thickness').value)
-        self.imu_quat_topic = self.get_parameter('imu_quat_topic').value
+        self.imu_topic = self.get_parameter('imu_topic').value
 
         self.bridge = CvBridge()
         self.latest_image = None
         self.latest_image_stamp = None
 
-        self.latest_pose = None
-        self.latest_pose_stamp = None
-        # new: fused pose cache
+        self.latest_vision_pose = None
+        self.latest_vision_stamp = None
+
         self.latest_fusion_pose = None
         self.latest_fusion_stamp = None
+
+        self.latest_imu_pose = None
+        self.latest_imu_stamp = None
 
         # storage for plane points and detected line
         self.plane_points_3d = None  # Nx3 numpy array
@@ -51,8 +54,8 @@ class VisionPoseVizNode(Node):
 
         # Subscriber to image and pose
         self.create_subscription(Image, self.image_topic, self.image_callback, 10)
-        self.create_subscription(PoseStamped, self.pose_topic, self.pose_callback, 10)
-        # subscribe to fusion pose
+        self.create_subscription(PoseStamped, self.vision_topic, self.vision_pose_callback, 10)
+        self.create_subscription(PoseStamped, self.imu_topic, self.imu_pose_callback, 10)
         self.create_subscription(PoseStamped, self.fusion_pose_topic, self.fusion_pose_callback, 10)
 
         # subscribe to plane point cloud and detected line topics
@@ -79,98 +82,10 @@ class VisionPoseVizNode(Node):
         else:
             self.dist = np.array(dist, dtype=np.float32)
 
-        # IMU-camera extrinsics
-        self.setup_imu_camera_transform()
-
-        # IMU-related state for IMU-only pose visualization
-        self.imu_only_rvec = None
-        self.imu_only_tvec = None
-        self.imu_initialized = False
-        self.last_imu_time = None
-
-        # Store initial rotations for camera and IMU to compute changes
-        self.camera_initial_rmat = None   # 3x3 rotation matrix of first camera pose
-        self.imu_initial_rmat = None      # 3x3 rotation matrix of first imu quaternion
-        self.camera_initial_rvec = None   # optional store initial rvec
-        self.camera_initial_tvec = None
-
         # Timer for visualization
         self.timer = self.create_timer(0.033, self.timer_callback)
-
-        # Subscribe to IMU quaternion topic (from imu_pose_node)
-        try:
-            self.create_subscription(QuaternionStamped, self.imu_quat_topic, self.imu_quat_callback, 10)
-            self.get_logger().info(f'IMU quaternion topic: {self.imu_quat_topic}')
-        except Exception:
-            self.get_logger().warn('Failed to subscribe to IMU quaternion topic; IMU visualization disabled')
-
         self.get_logger().info('Vision Pose Viz Node started')
 
-    def setup_imu_camera_transform(self):
-        # camera -> imu
-        self.R_ic = np.array([
-            [0., 0., 1.],
-            [1., 0., 0.],
-            [0., 1., 0.]
-        ], dtype=np.float64)
-
-        # imu -> camera (transpose/inverse)
-        self.R_ci = self.R_ic.T
-
-    def imu_quat_callback(self, msg: QuaternionStamped):
-        try:
-            q = msg.quaternion
-            quat_imu = np.array([q.x, q.y, q.z, q.w], dtype=np.float64)
-            from scipy.spatial.transform import Rotation as R
-
-            # Current IMU rotation matrix
-            R_imu_curr = R.from_quat(quat_imu).as_matrix()
-
-            # Store initial IMU rotation on first message
-            if self.imu_initial_rmat is None:
-                self.imu_initial_rmat = R_imu_curr.copy()
-
-            # If camera initial not available yet, keep imu_only as current imu (converted to rvec)
-            if self.camera_initial_rmat is None:
-                rvec_curr, _ = cv2.Rodrigues(R_imu_curr)
-                self.imu_only_rvec = rvec_curr.flatten()
-                return
-
-            # Rotation delta in IMU frame 这是基于原坐标系的变化，所以是右乘
-            R_delta_imu = self.imu_initial_rmat.T @ R_imu_curr
-
-            # 转欧拉角并输出 (XYZ 依次为 roll, pitch, yaw)
-            # euler_deg = R.from_matrix(R_delta_imu).as_euler('xyz', degrees=True)
-            # roll, pitch, yaw = euler_deg
-            # self.get_logger().info(f'IMU delta euler (deg): roll={roll:.2f}, pitch={pitch:.2f}, yaw={yaw:.2f}')
-
-            # Map delta into camera frame using extrinsics
-
-            # 定义角度
-            # angle = -45.0 * np.pi / 180.0  # 45 degrees in radians
-            # R_delta_imu = np.array([
-            #     [np.cos(angle), 0, -np.sin(angle)],
-            #     [0, 1, 0],
-            #     [np.sin(angle), 0, np.cos(angle)]
-            # ], dtype=np.float64)
-
-            R_delta_cam = self.R_ci @ R_delta_imu @ self.R_ic
-
-            # Apply delta to camera initial rotation
-            R_final_cam = R_delta_cam.T @ self.camera_initial_rmat
-
-            # Convert to rvec for visualization
-            rvec_final, _ = cv2.Rodrigues(R_final_cam)
-            self.imu_only_rvec = rvec_final.flatten()
-
-            # ensure imu tvec matches latest vision tvec if available
-            if self.latest_pose is not None:
-                _, vision_t = self.latest_pose
-                self.imu_only_tvec = vision_t.copy()
-
-            self.imu_initialized = True
-        except Exception as e:
-            self.get_logger().error(f'Failed to convert IMU quaternion to rvec: {e}')
 
     def image_callback(self, msg):
         try:
@@ -180,7 +95,21 @@ class VisionPoseVizNode(Node):
         except Exception as e:
             self.get_logger().error(f'Failed to convert image: {e}')
 
-    def pose_callback(self, msg: PoseStamped):
+    def imu_pose_callback(self, msg: PoseStamped):
+        try:
+            q = msg.pose.orientation
+            t = msg.pose.position
+            quat = np.array([q.x, q.y, q.z, q.w], dtype=np.float64)
+            from scipy.spatial.transform import Rotation as R
+            Rm = R.from_quat(quat).as_matrix()
+            rvec, _ = cv2.Rodrigues(Rm)
+            tvec = np.array([t.x, t.y, t.z], dtype=np.float64)
+            self.latest_imu_pose = (rvec.flatten(), tvec.flatten())
+            self.latest_imu_stamp = msg.header.stamp
+        except Exception as e:
+            self.get_logger().error(f'Failed to convert fused pose: {e}')
+
+    def vision_pose_callback(self, msg: PoseStamped):
         # Convert quaternion to rvec and tvec
         try:
             q = msg.pose.orientation
@@ -191,24 +120,8 @@ class VisionPoseVizNode(Node):
             Rm = R.from_quat(quat).as_matrix()
             rvec, _ = cv2.Rodrigues(Rm)
             tvec = np.array([t.x, t.y, t.z], dtype=np.float64)
-            self.latest_pose = (rvec.flatten(), tvec.flatten())
-            self.latest_pose_stamp = msg.header.stamp
-
-            # On first vision pose, record camera initial rotation and tvec
-            if self.camera_initial_rmat is None:
-                self.camera_initial_rmat = Rm.copy()
-                self.camera_initial_rvec = rvec.flatten().copy()
-                self.camera_initial_tvec = tvec.flatten().copy()
-
-            # initialize IMU-only pose if not yet and imu_initial exists
-            if not self.imu_initialized and self.imu_initial_rmat is not None:
-                # compute imu-only initial as camera initial (apply zero delta)
-                R_final = self.camera_initial_rmat.copy()
-                rvec_final, _ = cv2.Rodrigues(R_final)
-                self.imu_only_rvec = rvec_final.flatten().copy()
-                self.imu_only_tvec = tvec.flatten().copy()
-                self.imu_initialized = True
-                self.last_imu_time = None
+            self.latest_vision_pose = (rvec.flatten(), tvec.flatten())
+            self.latest_vision_stamp = msg.header.stamp
         except Exception as e:
             self.get_logger().error(f'Failed to convert pose: {e}')
 
@@ -333,8 +246,8 @@ class VisionPoseVizNode(Node):
 
         # Vision panel
         vis_vision = base.copy()
-        if self.latest_pose is not None:
-            rvec_v, tvec_v = self.latest_pose
+        if self.latest_vision_pose is not None:
+            rvec_v, tvec_v = self.latest_vision_pose
             try:
                 vis_vision = self.create_complete_image(vis_vision, rvec_v, tvec_v, title='Vision Pose', title_color=(0,255,0))
             except Exception as e:
@@ -342,18 +255,12 @@ class VisionPoseVizNode(Node):
 
         # IMU panel
         vis_imu = base.copy()
-        if self.imu_initialized and self.imu_only_rvec is not None and self.imu_only_tvec is not None:
+        if self.latest_imu_pose is not None:
+            rvec_i, tvec_i = self.latest_imu_pose
             try:
-                vis_imu = self.create_complete_image(vis_imu, self.imu_only_rvec, self.imu_only_tvec, title='IMU Pose', title_color=(0,128,255))
+                vis_imu = self.create_complete_image(vis_imu, rvec_i, tvec_i, title='IMU Pose', title_color=(0,0,255))
             except Exception as e:
-                self.get_logger().error(f'Failed to compose imu image: {e}')
-        else:
-            # show vision pose in imu panel if imu not initialized
-            if self.latest_pose is not None:
-                try:
-                    vis_imu = self.create_complete_image(vis_imu, *self.latest_pose, title='IMU Pose (init)', title_color=(0,128,255))
-                except Exception:
-                    pass
+                self.get_logger().error(f'Failed to compose IMU image: {e}')
         
         # Fusion panel
         vis_fusion = base.copy()
