@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'eskf_node = fusion_pkg.eskf_node:main',
+            'fusion_node = fusion_pkg.fusion_node:main',
         ],
     },
 )

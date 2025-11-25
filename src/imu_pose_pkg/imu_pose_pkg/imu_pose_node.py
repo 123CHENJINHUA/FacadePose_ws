@@ -60,6 +60,9 @@ class ImuPoseNode(Node):
         self.q_pub = self.create_publisher(QuaternionStamped, 'imu/quaternion', 10)
         self.euler_rad_pub = self.create_publisher(Vector3Stamped, 'imu/euler_rad', 10)
         self.euler_deg_pub = self.create_publisher(Vector3Stamped, 'imu/euler_deg', 10)
+        self.gyro_pub = self.create_publisher(Vector3Stamped, 'imu/gyro', 10)
+        self.acc_pub = self.create_publisher(Vector3Stamped, 'imu/acceleration', 10)
+        self.mag_pub = self.create_publisher(Vector3Stamped, 'imu/magnetic', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         # 串口
@@ -177,6 +180,9 @@ class ImuPoseNode(Node):
                     # print("Magnetometer_X(mG) : " + str(IMU_DATA[6]))
                     # print("Magnetometer_Y(mG) : " + str(IMU_DATA[7]))
                     # print("Magnetometer_Z(mG) : " + str(IMU_DATA[8]))
+                    self._publish_gyro(IMU_DATA[0],IMU_DATA[1],IMU_DATA[2])
+                    self._publish_acceleration(IMU_DATA[3],IMU_DATA[4],IMU_DATA[5])
+                    self._publish_magnetic(IMU_DATA[6],IMU_DATA[7],IMU_DATA[8])
                     # print("IMU_Temperature : " + str(IMU_DATA[9]))
                     # print("Pressure : " + str(IMU_DATA[10]))
                     # print("Pressure_Temperature : " + str(IMU_DATA[11]))
@@ -314,6 +320,33 @@ class ImuPoseNode(Node):
         deg_msg.vector.y = pitch * RAD2DEG
         deg_msg.vector.z = yaw * RAD2DEG
         self.euler_deg_pub.publish(deg_msg)
+
+    def _publish_gyro(self, gx: float, gy: float, gz: float):
+        msg = Vector3Stamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.child_frame_id
+        msg.vector.x = gx
+        msg.vector.y = gy
+        msg.vector.z = gz
+        self.gyro_pub.publish(msg)
+
+    def _publish_acceleration(self, ax: float, ay: float, az: float):
+        msg = Vector3Stamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.child_frame_id
+        msg.vector.x = ax
+        msg.vector.y = ay
+        msg.vector.z = az
+        self.acc_pub.publish(msg)
+
+    def _publish_magnetic(self, mx: float, my: float, mz: float):
+        msg = Vector3Stamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.child_frame_id
+        msg.vector.x = mx
+        msg.vector.y = my
+        msg.vector.z = mz
+        self.mag_pub.publish(msg)
 
 
 def main(args=None):

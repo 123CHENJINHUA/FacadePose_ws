@@ -70,6 +70,19 @@ def generate_launch_description():
         output='screen'
     )
 
+    fusion_node = Node(
+        package='fusion_pkg',
+        executable='fusion_node',
+        name='fusion_node',
+        parameters=[{
+            'input_pose_topic': '/vision_pose',
+            'input_imu_topic': LaunchConfiguration('imu_quat_topic'),
+            'output_topic': '/fusion_pose',
+            'publish_rate': 30.0,
+        }],
+        output='screen'
+    )
+
     vis_node = Node(
         package='vis_pkg',
         executable='vis_node',
@@ -78,6 +91,7 @@ def generate_launch_description():
             'image_topic': LaunchConfiguration('color_topic'),
             'pose_topic': '/vision_pose',
             'imu_quat_topic': LaunchConfiguration('imu_quat_topic'),
+            'fusion_pose_topic': '/fusion_pose',
             # camera intrinsics can be overridden here if desired
             # 'fx': 525.0, 'fy': 525.0, 'cx': 319.5, 'cy': 239.5
         }],
@@ -120,6 +134,7 @@ def generate_launch_description():
     # ld.add_action(imu_node)
     ld.add_action(vision_node)
     ld.add_action(vis_node)
+    ld.add_action(fusion_node)
     ld.add_action(play_launch)
 
     return ld

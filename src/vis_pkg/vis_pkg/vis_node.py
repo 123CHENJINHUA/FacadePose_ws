@@ -19,6 +19,7 @@ class VisionPoseVizNode(Node):
 
         self.declare_parameter('image_topic', '/camera/camera/color/image_raw')
         self.declare_parameter('pose_topic', '/vision_pose')
+        self.declare_parameter('fusion_pose_topic', '/fusion_pose')
         self.declare_parameter('output_frame', 'camera_link')
         self.declare_parameter('draw_length', 0.05)
         self.declare_parameter('draw_thickness', 3)
@@ -27,6 +28,7 @@ class VisionPoseVizNode(Node):
 
         self.image_topic = self.get_parameter('image_topic').value
         self.pose_topic = self.get_parameter('pose_topic').value
+        self.fusion_pose_topic = self.get_parameter('fusion_pose_topic').value
         self.output_frame = self.get_parameter('output_frame').value
         self.draw_length = float(self.get_parameter('draw_length').value)
         self.draw_thickness = int(self.get_parameter('draw_thickness').value)
@@ -38,6 +40,9 @@ class VisionPoseVizNode(Node):
 
         self.latest_pose = None
         self.latest_pose_stamp = None
+        # new: fused pose cache
+        self.latest_fusion_pose = None
+        self.latest_fusion_stamp = None
 
         # storage for plane points and detected line
         self.plane_points_3d = None  # Nx3 numpy array
@@ -47,6 +52,8 @@ class VisionPoseVizNode(Node):
         # Subscriber to image and pose
         self.create_subscription(Image, self.image_topic, self.image_callback, 10)
         self.create_subscription(PoseStamped, self.pose_topic, self.pose_callback, 10)
+        # subscribe to fusion pose
+        self.create_subscription(PoseStamped, self.fusion_pose_topic, self.fusion_pose_callback, 10)
 
         # subscribe to plane point cloud and detected line topics
         self.create_subscription(PointCloud2, '/vision_plane_points', self.plane_pc_callback, 10)
@@ -205,6 +212,21 @@ class VisionPoseVizNode(Node):
         except Exception as e:
             self.get_logger().error(f'Failed to convert pose: {e}')
 
+    def fusion_pose_callback(self, msg: PoseStamped):
+        """Convert fused PoseStamped to (rvec, tvec) and store."""
+        try:
+            q = msg.pose.orientation
+            t = msg.pose.position
+            quat = np.array([q.x, q.y, q.z, q.w], dtype=np.float64)
+            from scipy.spatial.transform import Rotation as R
+            Rm = R.from_quat(quat).as_matrix()
+            rvec, _ = cv2.Rodrigues(Rm)
+            tvec = np.array([t.x, t.y, t.z], dtype=np.float64)
+            self.latest_fusion_pose = (rvec.flatten(), tvec.flatten())
+            self.latest_fusion_stamp = msg.header.stamp
+        except Exception as e:
+            self.get_logger().error(f'Failed to convert fused pose: {e}')
+
     def plane_pc_callback(self, msg: PointCloud2):
         try:
             # read_points may return generator of tuples, or an ndarray with structured dtype
@@ -332,12 +354,23 @@ class VisionPoseVizNode(Node):
                     vis_imu = self.create_complete_image(vis_imu, *self.latest_pose, title='IMU Pose (init)', title_color=(0,128,255))
                 except Exception:
                     pass
+        
+        # Fusion panel
+        vis_fusion = base.copy()
+        if self.latest_fusion_pose is not None:
+            rvec_f, tvec_f = self.latest_fusion_pose
+            try:
+                vis_fusion = self.create_complete_image(vis_fusion, rvec_f, tvec_f, title='Fusion Pose', title_color=(255,0,255))
+            except Exception as e:
+                self.get_logger().error(f'Failed to compose fusion image: {e}')
 
         # Combine two panels side-by-side into a single image
         try:
             h1, w1 = vis_vision.shape[:2]
             h2, w2 = vis_imu.shape[:2]
-            target_h = max(h1, h2)
+            h3, w3 = vis_fusion.shape[:2]
+
+            target_h = max(h1, h2, h3)
 
             if h1 != target_h:
                 scale = target_h / h1
@@ -345,14 +378,20 @@ class VisionPoseVizNode(Node):
             if h2 != target_h:
                 scale = target_h / h2
                 vis_imu = cv2.resize(vis_imu, (int(w2 * scale), target_h))
+            if h3 != target_h:
+                scale = target_h / h3
+                vis_fusion = cv2.resize(vis_fusion, (int(w3 * scale), target_h))
 
-            combined = np.hstack((vis_vision, vis_imu))
+            combined = np.hstack((vis_vision, vis_imu, vis_fusion))
             # combined = cv2.resize(combined, (int(combined.shape[1]*0.5), int(combined.shape[0]*0.5)))
         except Exception as e:
             self.get_logger().error(f'Failed to combine images: {e}')
-            combined = vis_vision
+            try:
+                combined = np.hstack((vis_vision, vis_imu))
+            except Exception:
+                combined = vis_vision
 
-        cv2.imshow('Vision+IMU Pose', combined)
+        cv2.imshow('Vision+IMU+Fusion Pose', combined)
         cv2.waitKey(1)
 
 
