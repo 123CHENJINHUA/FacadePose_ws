@@ -89,11 +89,28 @@ def generate_launch_description():
         name='vision_pose_viz',
         parameters=[{
             'image_topic': LaunchConfiguration('color_topic'),
-            'pose_topic': '/vision_pose',
-            'imu_quat_topic': LaunchConfiguration('imu_quat_topic'),
+            'vision_topic': '/vision_pose',
+            'imu_correct_topic': '/imu_corrected_pose',
             'fusion_pose_topic': '/fusion_pose',
             # camera intrinsics can be overridden here if desired
             # 'fx': 525.0, 'fy': 525.0, 'cx': 319.5, 'cy': 239.5
+        }],
+        output='screen'
+    )
+
+    comparison_node = Node(
+        package='comparison_pkg',
+        executable='comparison_node',
+        name='pose_comparison_node',
+        parameters=[{   
+            'vision_topic': '/vision_pose',
+            'imu_topic': '/imu_corrected_pose',
+            'fusion_topic': '/fusion_pose',
+            'save_period': 5.0,
+            'output_dir': 'comparison',
+            'euler_order': 'xyz',
+            'degrees': True,
+            'max_points': 10000,
         }],
         output='screen'
     )
@@ -136,6 +153,7 @@ def generate_launch_description():
     ld.add_action(vis_node)
     ld.add_action(fusion_node)
     ld.add_action(play_launch)
+    ld.add_action(comparison_node)
 
     return ld
 

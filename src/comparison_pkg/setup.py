@@ -15,11 +15,12 @@ setup(
     zip_safe=True,
     maintainer='cjh',
     maintainer_email='jchenjb@connect.ust.hk',
-    description='TODO: Package description',
+    description='Pose comparison node for vision, IMU and fusion orientation analysis.',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'comparison_node = comparison_pkg.comparison:main',
         ],
     },
 )
