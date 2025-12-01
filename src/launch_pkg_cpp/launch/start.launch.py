@@ -98,6 +98,22 @@ def generate_launch_description():
         output='screen'
     )
 
+    pose_translate_node = Node(
+        package='pose_translate_pkg',
+        executable='pose_translate_node',
+        name='pose_translate_node',
+        parameters=[{
+            'fusion_pose_topic': '/fusion_pose',
+            'output_topic_base1': '/depth_to_pose/base1',
+            'output_topic_base2': '/depth_to_pose/base2',
+            # 'calibration_yaml': '/path/to/calibration_result.yaml',  # optional override
+            'input_frame': 'camera_link',
+            'base1_frame': 'base1',
+            'base2_frame': 'base2',
+        }],
+        output='screen'
+    )
+
     comparison_node = Node(
         package='comparison_pkg',
         executable='comparison_node',
@@ -154,6 +170,7 @@ def generate_launch_description():
     ld.add_action(fusion_node)
     ld.add_action(play_launch)
     ld.add_action(comparison_node)
+    ld.add_action(pose_translate_node)
 
     return ld
 
