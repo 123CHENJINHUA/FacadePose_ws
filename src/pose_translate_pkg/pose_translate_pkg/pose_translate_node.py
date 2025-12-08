@@ -12,7 +12,7 @@ import yaml
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 
@@ -51,6 +51,13 @@ class PoseTranslateNode(Node):
         # Publishers
         self.pub_base1 = self.create_publisher(PoseStamped, self.output_topic_base1, 10)
         self.pub_base2 = self.create_publisher(PoseStamped, self.output_topic_base2, 10)
+
+        # Additional publishers for Position (x,y,z) and Euler angles
+        self.pub_base1_pos = self.create_publisher(Vector3Stamped, self.output_topic_base1 + '/position', 10)
+        self.pub_base1_euler = self.create_publisher(Vector3Stamped, self.output_topic_base1 + '/euler_deg', 10)
+        
+        self.pub_base2_pos = self.create_publisher(Vector3Stamped, self.output_topic_base2 + '/position', 10)
+        self.pub_base2_euler = self.create_publisher(Vector3Stamped, self.output_topic_base2 + '/euler_deg', 10)
 
         # Subscriber
         self.create_subscription(PoseStamped, self.fusion_pose_topic, self.fusion_cb, 50)
@@ -131,8 +138,37 @@ class PoseTranslateNode(Node):
 
             self.pub_base1.publish(msg_b1)
             self.pub_base2.publish(msg_b2)
+
+            # Publish extra topics
+            self.publish_extra(T_b1, self.base1_frame, stamp, self.pub_base1_pos, self.pub_base1_euler)
+            self.publish_extra(T_b2, self.base2_frame, stamp, self.pub_base2_pos, self.pub_base2_euler)
+
         except Exception as e:
             self.get_logger().warn(f"Pose translation failed: {e}")
+
+    def publish_extra(self, T, frame_id, stamp, pub_pos, pub_euler):
+        Rm = T[0:3, 0:3]
+        t = T[0:3, 3]
+        # Euler in degrees
+        euler = R.from_matrix(Rm).as_euler('xyz', degrees=True)
+        
+        # Position
+        pos_msg = Vector3Stamped()
+        pos_msg.header.stamp = stamp
+        pos_msg.header.frame_id = frame_id
+        pos_msg.vector.x = float(t[0])
+        pos_msg.vector.y = float(t[1])
+        pos_msg.vector.z = float(t[2])
+        pub_pos.publish(pos_msg)
+        
+        # Euler
+        euler_msg = Vector3Stamped()
+        euler_msg.header.stamp = stamp
+        euler_msg.header.frame_id = frame_id
+        euler_msg.vector.x = float(euler[0])
+        euler_msg.vector.y = float(euler[1])
+        euler_msg.vector.z = float(euler[2])
+        pub_euler.publish(euler_msg)
 
 
 def main(args=None):

@@ -24,8 +24,8 @@ class FusionPoseNode(Node):
         self.declare_parameter('output_frame', 'camera_link')  # 与视觉保持一致或根据需求修改
         self.declare_parameter('imu_weight', 0.7)              # IMU 权重 (高频) 0~1
         self.declare_parameter('smooth_factor', 0.3)           # 对融合结果再平滑 (0 不平滑)
-        self.declare_parameter('sync_queue', 30)
-        self.declare_parameter('sync_slop', 0.05)
+        self.declare_parameter('sync_queue', 200)
+        self.declare_parameter('sync_slop', 0.1)
 
         self.vision_pose_topic = self.get_parameter('vision_pose_topic').value
         self.imu_quat_topic = self.get_parameter('imu_quat_topic').value

@@ -38,8 +38,8 @@ def generate_launch_description():
             'enable_color': 'true',
             'align_depth.enable': 'true',
             'pointcloud.enable': 'true',
-            'rgb_camera.color_profile': '640x480x60',
-            'depth_module.depth_profile': '640x480x60',
+            'rgb_camera.color_profile': '640x480x30',
+            'depth_module.depth_profile': '640x480x30',
         }.items(),
         condition=IfCondition(LaunchConfiguration('enable_realsense'))
     )
@@ -163,13 +163,13 @@ def generate_launch_description():
     ld.add_action(declare_imu_quat_topic)
     ld.add_action(declare_bag_name)
     ld.add_action(declare_rate)
-    # ld.add_action(realsense_launch)
-    # ld.add_action(imu_node)
+    ld.add_action(realsense_launch)
+    ld.add_action(imu_node)
     ld.add_action(vision_node)
     ld.add_action(vis_node)
     ld.add_action(fusion_node)
-    ld.add_action(play_launch)
-    ld.add_action(comparison_node)
+    # ld.add_action(play_launch)
+    # ld.add_action(comparison_node)
     ld.add_action(pose_translate_node)
 
     return ld

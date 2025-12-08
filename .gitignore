@@ -2,3 +2,4 @@ build/
 install/
 log/
 src/facade_record_pkg/records
+.vscode/

@@ -12,8 +12,10 @@ try:
     OPEN3D_AVAILABLE = True
     # 尝试使用GPU
     try:
-        device = o3d.core.Device("CUDA:0")
-        print("Using GPU for Open3D operations")
+        # device = o3d.core.Device("CUDA:0")
+        # print("Using GPU for Open3D operations")
+        device = o3d.core.Device("CPU:0")
+        print("GPU not available, using CPU for Open3D operations")
     except:
         device = o3d.core.Device("CPU:0")
         print("GPU not available, using CPU for Open3D operations")

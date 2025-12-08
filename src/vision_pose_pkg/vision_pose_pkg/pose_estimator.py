@@ -156,7 +156,7 @@ class VisionPoseEstimator:
         # 选择平面内基准轴（受重力与直线方向关系影响）
         parallel_thresh = 0.95
         perp_thresh = 0.2
-        baseline_axis = np.array([-1.0, 0.0, 0.0])  # 默认 X
+        baseline_axis = np.array([1.0, 0.0, 0.0])  # 默认 X
         if g is not None and v_c is not None:
             dot_g = abs(np.dot(v_c, g))
             if dot_g > parallel_thresh:
@@ -166,6 +166,7 @@ class VisionPoseEstimator:
                 # 直线方向与重力垂直 → 使用相机水平轴 X
                 baseline_axis = np.array([1.0, 0.0, 0.0])
             else:
+                print('dot_g:', np.degrees(dot_g))
                 return None, None, None
 
         '''
