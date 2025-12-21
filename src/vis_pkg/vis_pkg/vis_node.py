@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image, PointCloud2
+from sensor_msgs.msg import Image, PointCloud2,CameraInfo
 # from nav_msgs.msg import Odometry  # removed: use QuaternionStamped from imu_pose_node
 from geometry_msgs.msg import PoseStamped, QuaternionStamped
 from std_msgs.msg import Float32MultiArray, String
@@ -25,6 +25,7 @@ class VisionPoseVizNode(Node):
         self.declare_parameter('draw_thickness', 3)
         # use IMU quaternion topic from imu_pose_node
         self.declare_parameter('imu_topic', '/imu_corrected_pose')
+        self.declare_parameter('camera_info_topic', '/camera/camera/color/camera_info')
 
         self.image_topic = self.get_parameter('image_topic').value
         self.vision_topic = self.get_parameter('vision_topic').value
@@ -33,6 +34,7 @@ class VisionPoseVizNode(Node):
         self.draw_length = float(self.get_parameter('draw_length').value)
         self.draw_thickness = int(self.get_parameter('draw_thickness').value)
         self.imu_topic = self.get_parameter('imu_topic').value
+        self.camera_info_topic = self.get_parameter('camera_info_topic').value
 
         self.bridge = CvBridge()
         self.latest_image = None
@@ -62,29 +64,24 @@ class VisionPoseVizNode(Node):
         self.create_subscription(PointCloud2, '/vision_plane_points', self.plane_pc_callback, 10)
         self.create_subscription(Float32MultiArray, '/vision_detected_line', self.line_callback, 10)
 
-        # Camera intrinsics will be provided via parameters (for simplicity)
-        # Users should set these params to match camera_info
-        self.declare_parameter('fx', 525.0)
-        self.declare_parameter('fy', 525.0)
-        self.declare_parameter('cx', 319.5)
-        self.declare_parameter('cy', 239.5)
-        self.declare_parameter('dist_coeffs', [])
+        self.camera_info_sub = self.create_subscription(CameraInfo, self.camera_info_topic, self.camera_info_callback, 10)
+        self.camera_info_received = False
 
-        fx = float(self.get_parameter('fx').value)
-        fy = float(self.get_parameter('fy').value)
-        cx = float(self.get_parameter('cx').value)
-        cy = float(self.get_parameter('cy').value)
-        dist = self.get_parameter('dist_coeffs').value
-
-        self.mtx = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
-        if dist is None or len(dist) == 0:
-            self.dist = np.zeros((5, 1), dtype=np.float32)
-        else:
-            self.dist = np.array(dist, dtype=np.float32)
+        # Publisher for combined image
+        self.combined_image_pub = self.create_publisher(Image, 'combined_image', 10)
 
         # Timer for visualization
         self.timer = self.create_timer(0.033, self.timer_callback)
         self.get_logger().info('Vision Pose Viz Node started')
+
+    def camera_info_callback(self, msg):
+        """相机参数回调"""
+        if not self.camera_info_received:
+            # 提取相机内参
+            self.mtx = np.array(msg.k).reshape(3, 3)
+            self.dist = np.array(msg.d)
+            self.camera_info_received = True
+
 
 
     def image_callback(self, msg):
@@ -297,6 +294,19 @@ class VisionPoseVizNode(Node):
                 combined = np.hstack((vis_vision, vis_imu))
             except Exception:
                 combined = vis_vision
+
+        # Publish the combined image
+        try:
+            combined_msg = self.bridge.cv2_to_imgmsg(combined, encoding="bgr8")
+            # Use the timestamp from the latest image if available, otherwise current time
+            if self.latest_image_stamp:
+                combined_msg.header.stamp = self.latest_image_stamp
+            else:
+                combined_msg.header.stamp = self.get_clock().now().to_msg()
+            combined_msg.header.frame_id = self.output_frame
+            self.combined_image_pub.publish(combined_msg)
+        except Exception as e:
+            self.get_logger().error(f'Failed to publish combined image: {e}')
 
         cv2.imshow('Vision+IMU+Fusion Pose', combined)
         cv2.waitKey(1)

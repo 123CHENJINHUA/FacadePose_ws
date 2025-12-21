@@ -92,8 +92,6 @@ def generate_launch_description():
             'vision_topic': '/vision_pose',
             'imu_correct_topic': '/imu_corrected_pose',
             'fusion_pose_topic': '/fusion_pose',
-            # camera intrinsics can be overridden here if desired
-            # 'fx': 525.0, 'fy': 525.0, 'cx': 319.5, 'cy': 239.5
         }],
         output='screen'
     )
