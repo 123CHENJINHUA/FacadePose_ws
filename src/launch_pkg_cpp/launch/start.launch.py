@@ -44,6 +44,17 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_realsense'))
     )
 
+    # Include Arm Cameras launch
+    arm_cameras_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('arm_camera_pkg'),
+                'launch',
+                'cameras.launch.py'
+            ])
+        ])
+    )
+
     # IMU odometry node
     imu_node = Node(
         package='imu_pose_pkg',
@@ -162,6 +173,7 @@ def generate_launch_description():
     ld.add_action(declare_bag_name)
     ld.add_action(declare_rate)
     ld.add_action(realsense_launch)
+    ld.add_action(arm_cameras_launch)
     ld.add_action(imu_node)
     ld.add_action(vision_node)
     ld.add_action(vis_node)
