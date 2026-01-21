@@ -15,9 +15,10 @@ def generate_launch_description():
     # Declare configurable launch arguments
     declare_enable_realsense = DeclareLaunchArgument('enable_realsense', default_value='true', description='Start RealSense camera')
 
-    declare_depth_topic = DeclareLaunchArgument('depth_topic', default_value='/camera/camera/aligned_depth_to_color/image_raw')
-    declare_color_topic = DeclareLaunchArgument('color_topic', default_value='/camera/camera/color/image_raw')
-    declare_camera_info_topic = DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera/color/camera_info')
+    declare_depth_topic = DeclareLaunchArgument('depth_topic', default_value='camera/camera_middle/aligned_depth_to_color/image_raw')
+    declare_color_topic = DeclareLaunchArgument('color_topic', default_value='camera/camera_middle/color/image_raw')
+    declare_camera_info_topic = DeclareLaunchArgument('camera_info_topic', default_value='camera/camera_middle/color/camera_info')
+    declare_pointcloud_topic = DeclareLaunchArgument('pointcloud_topic', default_value='camera/camera_middle/depth/color/points')
     declare_imu_quat_topic = DeclareLaunchArgument('imu_quat_topic', default_value='/imu/quaternion')
 
     # New: rosbag play parameters (set here so you can pass them via this launch)
@@ -28,18 +29,13 @@ def generate_launch_description():
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
-                FindPackageShare('realsense2_camera'),
+                FindPackageShare('launch_pkg_cpp'),
                 'launch',
-                'rs_launch.py'
+                'realsense_launch.py'
             ])
         ]),
         launch_arguments={
-            'enable_depth': 'true',
-            'enable_color': 'true',
-            'align_depth.enable': 'true',
-            'pointcloud.enable': 'true',
-            'rgb_camera.color_profile': '640x480x30',
-            'depth_module.depth_profile': '640x480x30',
+            'enable_realsense': LaunchConfiguration('enable_realsense'),
         }.items(),
         condition=IfCondition(LaunchConfiguration('enable_realsense'))
     )
@@ -72,6 +68,7 @@ def generate_launch_description():
             'depth_topic': LaunchConfiguration('depth_topic'),
             'color_topic': LaunchConfiguration('color_topic'),
             'camera_info_topic': LaunchConfiguration('camera_info_topic'),
+            'pointcloud_topic': LaunchConfiguration('pointcloud_topic'),
             'output_topic': '/vision_pose',
             'publish_rate': 30.0,
             'min_plane_points': 300,
@@ -103,6 +100,7 @@ def generate_launch_description():
             'vision_topic': '/vision_pose',
             'imu_correct_topic': '/imu_corrected_pose',
             'fusion_pose_topic': '/fusion_pose',
+            'camera_info_topic': LaunchConfiguration('camera_info_topic'),
         }],
         output='screen'
     )
@@ -169,11 +167,12 @@ def generate_launch_description():
     ld.add_action(declare_depth_topic)
     ld.add_action(declare_color_topic)
     ld.add_action(declare_camera_info_topic)
+    ld.add_action(declare_pointcloud_topic)
     ld.add_action(declare_imu_quat_topic)
     ld.add_action(declare_bag_name)
     ld.add_action(declare_rate)
     ld.add_action(realsense_launch)
-    ld.add_action(arm_cameras_launch)
+    # ld.add_action(arm_cameras_launch)
     ld.add_action(imu_node)
     ld.add_action(vision_node)
     ld.add_action(vis_node)

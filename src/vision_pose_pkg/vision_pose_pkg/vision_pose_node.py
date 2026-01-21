@@ -52,10 +52,10 @@ class VisionPoseEstimatorNode(Node):
         self.depth_topic = self.get_parameter('depth_topic').value
         self.color_topic = self.get_parameter('color_topic').value
         self.camera_info_topic = self.get_parameter('camera_info_topic').value
+        self.pointcloud_topic = self.get_parameter('pointcloud_topic').value
         self.output_topic = self.get_parameter('output_topic').value
         self.output_frame = self.get_parameter('output_frame').value
         self.publish_rate = self.get_parameter('publish_rate').value
-        self.pointcloud_topic = self.get_parameter('pointcloud_topic').value
         self.imu_quat_topic = self.get_parameter('imu_quat_topic').value
         
         # 平面检测参数

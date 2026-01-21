@@ -43,7 +43,7 @@ class ImuPoseNode(Node):
         super().__init__('imu_pose_node')
 
         # 参数
-        self.declare_parameter('port', '/dev/ttyUSB0')
+        self.declare_parameter('port', '/dev/ttyCH343USB0')
         self.declare_parameter('baudrate', 921600)
         self.declare_parameter('timeout_ms', 20)  # 串口超时(ms)
         self.declare_parameter('parent_frame_id', 'map')
@@ -100,9 +100,9 @@ class ImuPoseNode(Node):
         return False
 
     def _open_port(self) -> bool:
-        if not self._find_port_exists():
-            self.get_logger().error(f'找不到串口: {self.port}')
-            return False
+        # if not self._find_port_exists():
+        #     self.get_logger().error(f'找不到串口: {self.port}')
+        #     return False
         try:
             self.serial_ = serial.Serial(
                 port=self.port,

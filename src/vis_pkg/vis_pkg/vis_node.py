@@ -308,8 +308,8 @@ class VisionPoseVizNode(Node):
         except Exception as e:
             self.get_logger().error(f'Failed to publish combined image: {e}')
 
-        cv2.imshow('Vision+IMU+Fusion Pose', combined)
-        cv2.waitKey(1)
+        # cv2.imshow('Vision+IMU+Fusion Pose', combined)
+        # cv2.waitKey(1)
 
 
 def main(args=None):

@@ -5,3 +5,6 @@ export PYTHONPATH=$PYTHONPATH:/home/cjh/anaconda3/envs/facade_pose/lib/python3.1
 
 ros2 launch launch_pkg_cpp start.launch.py bag_name:=facade_selected_20251124_184438
 
+export PYTHONPATH=$PYTHONPATH:/home/cjh/miniconda3/envs/facade_pose/lib/python3.10/site-packages
+
+
