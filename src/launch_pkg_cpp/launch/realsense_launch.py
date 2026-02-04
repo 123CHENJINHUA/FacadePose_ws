@@ -51,7 +51,7 @@ def generate_launch_description():
             ]),
             launch_arguments={
                 'camera_name': 'camera_left',
-                'serial_no': "'213622077808'",
+                'serial_no': "'213522070575'",
                 'enable_depth': 'true',
                 'enable_color': 'true',
                 'align_depth.enable': 'true',
@@ -73,7 +73,7 @@ def generate_launch_description():
             ]),
             launch_arguments={
                 'camera_name': 'camera_right',
-                'serial_no': "'213522070575'",
+                'serial_no': "'213622077808'",
                 'enable_depth': 'true',
                 'enable_color': 'true',
                 'align_depth.enable': 'true',

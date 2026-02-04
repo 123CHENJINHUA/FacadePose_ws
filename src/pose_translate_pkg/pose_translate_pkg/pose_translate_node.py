@@ -130,8 +130,8 @@ class PoseTranslateNode(Node):
             stamp = msg.header.stamp
 
             # Apply camera->base transforms: T_base = T_cam_base * T_cam
-            T_b1 = self.T_cam_base1 @ T_cam
-            T_b2 = self.T_cam_base2 @ T_cam
+            T_b1 = self.T_cam_base1.T @ T_cam
+            T_b2 = self.T_cam_base2.T @ T_cam
 
             msg_b1 = self.T_to_pose(T_b1, self.base1_frame, stamp)
             msg_b2 = self.T_to_pose(T_b2, self.base2_frame, stamp)
