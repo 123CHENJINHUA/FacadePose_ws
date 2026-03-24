@@ -32,6 +32,9 @@ def generate_launch_description():
                 'serial_no': "'346222071810'",
                 'enable_depth': 'true',
                 'enable_color': 'true',
+                'enable_infra1': 'true',
+                'enable_infra2': 'true',
+                'depth_module.infra_profile': '640x480x30',
                 'align_depth.enable': 'true',
                 'pointcloud.enable': 'true',
                 'rgb_camera.color_profile': '640x480x30',
@@ -40,47 +43,47 @@ def generate_launch_description():
             condition=IfCondition(enable_realsense)
         ),
 
-        # Camera Left
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                PathJoinSubstitution([
-                    FindPackageShare('realsense2_camera'),
-                    'launch',
-                    'rs_launch.py'
-                ])
-            ]),
-            launch_arguments={
-                'camera_name': 'camera_left',
-                'serial_no': "'213522070575'",
-                'enable_depth': 'true',
-                'enable_color': 'true',
-                'align_depth.enable': 'true',
-                'pointcloud.enable': 'false',
-                'rgb_camera.color_profile': '640x480x30',
-                'depth_module.depth_profile': '640x480x30',
-            }.items(),
-            condition=IfCondition(enable_realsense)
-        ),
+        # # Camera Left
+        # IncludeLaunchDescription(
+        #     PythonLaunchDescriptionSource([
+        #         PathJoinSubstitution([
+        #             FindPackageShare('realsense2_camera'),
+        #             'launch',
+        #             'rs_launch.py'
+        #         ])
+        #     ]),
+        #     launch_arguments={
+        #         'camera_name': 'camera_left',
+        #         'serial_no': "'213522070575'",
+        #         'enable_depth': 'true',
+        #         'enable_color': 'true',
+        #         'align_depth.enable': 'true',
+        #         'pointcloud.enable': 'true',
+        #         'rgb_camera.color_profile': '640x480x30',
+        #         'depth_module.depth_profile': '640x480x30',
+        #     }.items(),
+        #     condition=IfCondition(enable_realsense)
+        # ),
 
-        # Camera Right
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([
-                PathJoinSubstitution([
-                    FindPackageShare('realsense2_camera'),
-                    'launch',
-                    'rs_launch.py'
-                ])
-            ]),
-            launch_arguments={
-                'camera_name': 'camera_right',
-                'serial_no': "'213622077808'",
-                'enable_depth': 'true',
-                'enable_color': 'true',
-                'align_depth.enable': 'true',
-                'pointcloud.enable': 'false',
-                'rgb_camera.color_profile': '640x480x30',
-                'depth_module.depth_profile': '640x480x30',
-            }.items(),
-            condition=IfCondition(enable_realsense)
-        ),
+        # # Camera Right
+        # IncludeLaunchDescription(
+        #     PythonLaunchDescriptionSource([
+        #         PathJoinSubstitution([
+        #             FindPackageShare('realsense2_camera'),
+        #             'launch',
+        #             'rs_launch.py'
+        #         ])
+        #     ]),
+        #     launch_arguments={
+        #         'camera_name': 'camera_right',
+        #         'serial_no': "'213622077808'",
+        #         'enable_depth': 'true',
+        #         'enable_color': 'true',
+        #         'align_depth.enable': 'true',
+        #         'pointcloud.enable': 'false',
+        #         'rgb_camera.color_profile': '640x480x30',
+        #         'depth_module.depth_profile': '640x480x30',
+        #     }.items(),
+        #     condition=IfCondition(enable_realsense)
+        # ),
     ])
