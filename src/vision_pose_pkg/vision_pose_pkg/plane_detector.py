@@ -46,6 +46,19 @@ class PlaneDetector:
             print("Open3D not available")
             return []
             
+        # 过滤：移除深度大于3.0米的点（假定 depth 在 z 分量）
+        try:
+            if point_cloud is None:
+                return []
+            # 仅在点云有至少3个分量时按 z 分量过滤
+            if isinstance(point_cloud, np.ndarray) and point_cloud.shape[1] >= 3:
+                depth = point_cloud[:, 2]
+                mask = np.isfinite(depth) & (depth <= 3.0)
+                point_cloud = point_cloud[mask]
+        except Exception:
+            # 若出现任何问题，退回到原始点云（不过不抛出异常）
+            pass
+
         if point_cloud is None or len(point_cloud) < self.min_points:
             return []
 
