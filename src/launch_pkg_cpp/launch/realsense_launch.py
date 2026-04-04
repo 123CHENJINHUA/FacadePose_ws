@@ -7,6 +7,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.conditions import IfCondition
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import Node
 
 def generate_launch_description():
     enable_realsense = LaunchConfiguration('enable_realsense')
@@ -58,7 +59,7 @@ def generate_launch_description():
         #         'enable_depth': 'true',
         #         'enable_color': 'true',
         #         'align_depth.enable': 'true',
-        #         'pointcloud.enable': 'true',
+        #         'pointcloud.enable': 'false',
         #         'rgb_camera.color_profile': '640x480x30',
         #         'depth_module.depth_profile': '640x480x30',
         #     }.items(),
@@ -79,11 +80,24 @@ def generate_launch_description():
         #         'serial_no': "'213622077808'",
         #         'enable_depth': 'true',
         #         'enable_color': 'true',
+        #         'enable_infra1': 'true',           # 启用左红外
+        #         'enable_infra2': 'true',           # 启用右红外
+        #         'depth_module.infra_profile': '640x480x30',
         #         'align_depth.enable': 'true',
-        #         'pointcloud.enable': 'false',
+        #         'pointcloud.enable': 'true',
+        #         'enable_gyro': 'true',                    # 启用陀螺仪 [citation:1][citation:3]
+        #         'enable_accel': 'true',                    # 启用加速度计 [citation:1][citation:3]
+        #         'unite_imu_method': '2',  # IMU数据插值方法 [citation:1][citation:3]
         #         'rgb_camera.color_profile': '640x480x30',
         #         'depth_module.depth_profile': '640x480x30',
         #     }.items(),
         #     condition=IfCondition(enable_realsense)
+        # ),
+
+        # Node(
+        #     package='imu_trans_pkg',
+        #     executable='imu_trans_node',
+        #     name='imu_trans_node',
+        #     output='screen',
         # ),
     ])

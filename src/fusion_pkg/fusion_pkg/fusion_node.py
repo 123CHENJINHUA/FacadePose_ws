@@ -27,6 +27,10 @@ class FusionPoseNode(Node):
         self.declare_parameter('sync_queue', 200)
         self.declare_parameter('sync_slop', 0.1)
 
+        # --- perf/log ---
+        self.declare_parameter('log_every_n_frames', 0)  # 0 disables periodic frame log
+        self.declare_parameter('log_throttle_sec', 2.0)
+
         self.vision_pose_topic = self.get_parameter('vision_pose_topic').value
         self.imu_quat_topic = self.get_parameter('imu_quat_topic').value
         self.output_topic = self.get_parameter('output_topic').value
@@ -36,6 +40,9 @@ class FusionPoseNode(Node):
         self.smooth_factor = float(self.get_parameter('smooth_factor').value)
         self.sync_queue = int(self.get_parameter('sync_queue').value)
         self.sync_slop = float(self.get_parameter('sync_slop').value)
+
+        self.log_every_n_frames = int(self.get_parameter('log_every_n_frames').value)
+        self.log_throttle_sec = float(self.get_parameter('log_throttle_sec').value)
 
         # 与 vis_node 一致的 IMU-相机外参
         self.setup_imu_camera_transform()
@@ -165,8 +172,13 @@ class FusionPoseNode(Node):
             self.publish_pose(rvec, tvec, stamp)
             self.imu_corrected_pose(rvec_imu, tvec, stamp)
             self.frame_count += 1
-            if self.frame_count % 50 == 0:
-                self.get_logger().info(f'Fusion frames published: {self.frame_count}')
+
+            # Avoid terminal IO stalls: throttle/disable this periodic log
+            if self.log_every_n_frames and (self.frame_count % self.log_every_n_frames == 0):
+                self.get_logger().info(
+                    f'Fusion frames published: {self.frame_count}',
+                    throttle_duration_sec=self.log_throttle_sec
+                )
         except Exception as e:
             self.get_logger().warn(f'Fusion failed: {e}')
 

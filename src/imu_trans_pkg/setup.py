@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'vis_pkg'
+package_name = 'imu_trans_pkg'
 
 setup(
     name=package_name,
@@ -20,8 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'vis_node = vis_pkg.vis_node:main',
-            'record_node = vis_pkg.record_node:main',
+            'imu_trans_node = imu_trans_pkg.imu_trans_node:main'
         ],
     },
 )
