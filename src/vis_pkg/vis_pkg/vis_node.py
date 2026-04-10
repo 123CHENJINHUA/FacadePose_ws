@@ -27,10 +27,6 @@ class VisionPoseVizNode(Node):
         self.declare_parameter('imu_topic', '/imu_corrected_pose')
         self.declare_parameter('camera_info_topic', '/camera/camera/color/camera_info')
 
-        # --- perf/log params ---
-        self.declare_parameter('enable_imshow', False)
-        self.declare_parameter('log_period_sec', 5.0)
-
         self.image_topic = self.get_parameter('image_topic').value
         self.vision_topic = self.get_parameter('vision_topic').value
         self.fusion_pose_topic = self.get_parameter('fusion_pose_topic').value
@@ -39,9 +35,6 @@ class VisionPoseVizNode(Node):
         self.draw_thickness = int(self.get_parameter('draw_thickness').value)
         self.imu_topic = self.get_parameter('imu_topic').value
         self.camera_info_topic = self.get_parameter('camera_info_topic').value
-
-        self.enable_imshow = bool(self.get_parameter('enable_imshow').value)
-        self.log_period_sec = float(self.get_parameter('log_period_sec').value)
 
         self.bridge = CvBridge()
         self.latest_image = None
@@ -79,8 +72,6 @@ class VisionPoseVizNode(Node):
 
         # Timer for visualization
         self.timer = self.create_timer(0.033, self.timer_callback)
-
-        # Use ROS2 throttled logging to avoid console/IO stalls
         self.get_logger().info('Vision Pose Viz Node started')
 
     def camera_info_callback(self, msg):
@@ -248,9 +239,6 @@ class VisionPoseVizNode(Node):
         if self.latest_image is None:
             return
 
-        # Optional throttle log (kept off by default)
-        self.get_logger().debug('timer tick')
-
         base = self.latest_image.copy()
 
         # Vision panel
@@ -318,12 +306,10 @@ class VisionPoseVizNode(Node):
             combined_msg.header.frame_id = self.output_frame
             self.combined_image_pub.publish(combined_msg)
         except Exception as e:
-            # throttle errors to avoid spamming
-            self.get_logger().error(str(e), throttle_duration_sec=self.log_period_sec)
+            self.get_logger().error(f'Failed to publish combined image: {e}')
 
-        if self.enable_imshow:
-            cv2.imshow('Result', vis_vision)
-            cv2.waitKey(1)
+        cv2.imshow('Result', vis_vision)
+        cv2.waitKey(1)
 
 
 def main(args=None):

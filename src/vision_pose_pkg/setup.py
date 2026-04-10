@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'vision_pose_node = vision_pose_pkg.vision_pose_node:main',
+            'vision_pose_debug_viz_node = vision_pose_pkg.vision_pose_debug_viz_node:main',
         ],
     },
 )

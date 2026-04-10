@@ -57,66 +57,119 @@ class VisionPoseEstimator:
         R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
         return R
     
-    def calculate_rotation_angle_from_line(self, plane, image, gravity_vector=None):
+    def calculate_rotation_angle_from_line(self, plane, image, gravity_vector=None, return_debug: bool = False):
+        """Calculates pose from plane + line features.
+
+        Args:
+            plane: plane dict from PlaneDetector
+            image: BGR image
+            gravity_vector: optional gravity vector in camera frame
+            return_debug: when True, returns an extra debug dict with intermediate results
+
+        Returns:
+            (rvec, tvec, viz_line) if return_debug is False
+            (rvec, tvec, viz_line, debug) if return_debug is True
         """
-        Calculates the rotation angle around the normal by finding the longest line
-        in the plane's 2D projection and determining if it's horizontal or vertical
-        based on gravity vector.
-        """
+        debug = {
+            'bbox_xywh': None,
+            'crop_xyxy': None,
+            'gray_crop': None,
+            'edges': None,
+            'hough_lines': None,
+            'longest_line_crop': None,
+            'longest_line_full': None,
+            'plane_normal': None,
+            'plane_center': None,
+            'baseline_axis': None,
+            'theta_rad': None,
+            'R_normal': None,
+            'R_total': None,
+            'v_c': None,
+            'a_proj': None,
+            'gravity': None,
+            'status': 'init',
+        }
+
+        def _ret(rvec_, tvec_, line_):
+            if return_debug:
+                return rvec_, tvec_, line_, debug
+            return rvec_, tvec_, line_
+
         # 1. Get 2D points and find bounding box
         plane_points_3d = np.asarray(plane['pcd'].points)
-        if plane_points_3d.shape[0] < 20: # Need enough points to form a reliable plane
-            return None, None, None
+        debug['plane_center'] = np.array(plane.get('center', [np.nan, np.nan, np.nan]), dtype=np.float64).reshape(3)
+        debug['plane_normal'] = np.array(plane.get('normal', [np.nan, np.nan, np.nan]), dtype=np.float64).reshape(3)
 
-        plane_points_2d, _ = cv2.projectPoints(plane_points_3d, np.zeros(3), np.zeros(3), self.camera_matrix, self.dist_coeffs)
+        if plane_points_3d.shape[0] < 50:
+            debug['status'] = 'too_few_plane_points'
+            return _ret(None, None, None)
+
+        plane_points_2d, _ = cv2.projectPoints(
+            plane_points_3d,
+            np.zeros(3),
+            np.zeros(3),
+            self.camera_matrix,
+            self.dist_coeffs,
+        )
         plane_points_2d = np.squeeze(plane_points_2d).astype(int)
 
         if plane_points_2d.ndim == 1 or len(plane_points_2d) < 2:
-            return None, None, None
+            debug['status'] = 'invalid_projected_points'
+            return _ret(None, None, None)
 
         x, y, w, h = cv2.boundingRect(plane_points_2d)
-        
+        debug['bbox_xywh'] = (int(x), int(y), int(w), int(h))
+
         # Ensure the bounding box is of a minimum size
         if w < 20 or h < 20:
-            return None, None, None
+            debug['status'] = 'bbox_too_small'
+            return _ret(None, None, None)
 
         # 2. Crop the image, add some padding
         padding = 10
         x_start, y_start = max(x - padding, 0), max(y - padding, 0)
         x_end, y_end = min(x + w + padding, image.shape[1]), min(y + h + padding, image.shape[0])
-        
+        debug['crop_xyxy'] = (int(x_start), int(y_start), int(x_end), int(y_end))
+
         cropped_image = image[y_start:y_end, x_start:x_end]
         if cropped_image.size == 0:
-            return None, None, None
+            debug['status'] = 'empty_crop'
+            return _ret(None, None, None)
 
         # 3. Grayscale and Canny
         gray_crop = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray_crop, 50, 150)
+        debug['gray_crop'] = gray_crop
+        debug['edges'] = edges
 
         # 4. Hough Line Transform
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=30, minLineLength=20, maxLineGap=10)
-
         if lines is None:
-            return None, None, None
+            debug['status'] = 'no_hough_lines'
+            return _ret(None, None, None)
+        debug['hough_lines'] = lines
 
         # 5. Find the longest line
         longest_line = None
-        max_len = 0
+        max_len = 0.0
         for line in lines:
             x1, y1, x2, y2 = line[0]
-            length = np.hypot(x2 - x1, y2 - y1)
+            length = float(np.hypot(x2 - x1, y2 - y1))
             if length > max_len:
                 max_len = length
-                longest_line = (x1, y1, x2, y2)
+                longest_line = (int(x1), int(y1), int(x2), int(y2))
 
         if longest_line is None:
-            return None, None, None
-        
+            debug['status'] = 'no_longest_line'
+            return _ret(None, None, None)
+        debug['longest_line_crop'] = longest_line
+
         # Ensure normal is a numpy array and normalized
         normal = np.array(plane['normal'], dtype=np.float64).reshape(3)
         norm_val = np.linalg.norm(normal)
         if norm_val == 0 or np.isnan(norm_val):
-            return None, None, None
+            debug['status'] = 'invalid_normal'
+            return _ret(None, None, None)
         normal = normal / norm_val
 
         # Ensure normal points toward the camera (z should be negative in camera frame)
@@ -140,76 +193,74 @@ class VisionPoseEstimator:
         v_c = np.cross(normal, n_line)
         v_c_norm = np.linalg.norm(v_c)
         if v_c_norm < 1e-6:
-            print("Degenerate line direction; fallback to normal alignment only")
+            debug['status'] = 'degenerate_line_direction'
             v_c = None
         else:
             v_c = v_c / v_c_norm
+        debug['v_c'] = v_c
 
         if gravity_vector is not None:
             g = self.normalize(gravity_vector)
         else:
             g = None
+        debug['gravity'] = g
 
-        # 第一步：对齐法向量，使平面法向量与相机参考法向量 [0,0,-1] 一致
+        # 第一步：对齐法向量
         R_normal = self.align_vectors(np.array([0.0, 0.0, -1.0]), normal)
+        debug['R_normal'] = R_normal
 
-        # 选择平面内基准轴（受重力与直线方向关系影响）
+        # 选择平面内基准轴
         parallel_thresh = 0.95
         perp_thresh = 0.2
         baseline_axis = np.array([1.0, 0.0, 0.0])  # 默认 X
         if g is not None and v_c is not None:
-            dot_g = abs(np.dot(v_c, g))
+            dot_g = abs(float(np.dot(v_c, g)))
             if dot_g > parallel_thresh:
-                # 直线方向与重力平行 → 使用相机竖直轴 Y
                 baseline_axis = np.array([0.0, 1.0, 0.0])
             elif dot_g < perp_thresh:
-                # 直线方向与重力垂直 → 使用相机水平轴 X
                 baseline_axis = np.array([1.0, 0.0, 0.0])
             else:
-                print('dot_g:', np.degrees(dot_g))
-                return None, None, None
+                baseline_axis = np.array([0.0, 1.0, 0.0])
+        debug['baseline_axis'] = baseline_axis
 
-        '''
-        Rodrigues版本: R_plane = exp([n]_x θ) 只绕法向量 normal 旋转角度 θ，
-        保证已对齐的法向量不被破坏，是“受约束旋转”。
-        align_vectors(a_proj, v_c): 计算使 a_proj → v_c 的最小旋转，旋转轴为 a_projxv_c。
-        理想情况下该轴与 normal 重合，但受数值误差或之前对 v_c 翻转的处理影响，轴可能略偏离 normal,造成法向量被再次扰动。
-        '''
         # 将基准轴变换到已对齐法向量后的坐标系
         a = R_normal @ baseline_axis
 
         # 投影到平面内
         a_proj = a - np.dot(a, normal) * normal
         a_proj_norm = np.linalg.norm(a_proj)
+
         if a_proj_norm < 1e-6 or v_c is None:
-            # 无法可靠计算平面内角度，直接返回法向量对齐结果
             R_total = R_normal
+            theta = None
+            debug['status'] = 'angle_unreliable_fallback_normal'
         else:
             a_proj = a_proj / a_proj_norm
-            # 保证旋转角为锐角：若投影与线方向点积为负，翻转 v_c
             if np.dot(a_proj, v_c) < 0:
                 v_c = -v_c
+                debug['v_c'] = v_c
 
-            # 计算在平面内从 a_proj 旋转到 v_c 的角度与方向
             cross_ap_vc = np.cross(a_proj, v_c)
-            numer = np.dot(normal, cross_ap_vc)        # 有符号 sinθ
-            denom = np.clip(np.dot(a_proj, v_c), -1.0, 1.0)  # cosθ
-            theta = np.arctan2(numer, denom)
-            # print("Rotation angle (degrees):", np.degrees(theta))
-            # Rodrigues 绕法向量旋转
+            numer = float(np.dot(normal, cross_ap_vc))
+            denom = float(np.clip(np.dot(a_proj, v_c), -1.0, 1.0))
+            theta = float(np.arctan2(numer, denom))
             rvec_plane = normal * theta
             R_plane, _ = cv2.Rodrigues(rvec_plane)
             R_total = R_plane @ R_normal
+            debug['status'] = 'ok'
+
+        debug['theta_rad'] = theta
+        debug['a_proj'] = a_proj if a_proj_norm >= 1e-6 else None
+        debug['R_total'] = R_total
 
         # Convert rotation matrix to rotation vector (rvec)
         rvec, _ = cv2.Rodrigues(R_total)
         rvec = rvec.reshape(3, 1).astype(np.float32)
 
-        # 平移向量为平面中心 (float32)
         center = np.array(plane['center'], dtype=np.float64).reshape(3)
         tvec = center.reshape(3, 1).astype(np.float32)
 
-        # Return the line coordinates relative to the original image for drawing
         viz_line = (x1 + x_start, y1 + y_start, x2 + x_start, y2 + y_start)
+        debug['longest_line_full'] = viz_line
 
-        return rvec, tvec, viz_line
+        return _ret(rvec, tvec, viz_line)
