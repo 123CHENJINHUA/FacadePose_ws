@@ -307,24 +307,41 @@ class VisionPoseDebugVizNode(Node):
         if longest_line is not None:
             x1, y1, x2, y2 = [int(v) for v in longest_line]
             cv2.line(panel_line, (x1, y1), (x2, y2), (0, 255, 255), 3)
+
+        # --- NEW: draw gravity projection on image (2D arrow) ---
+        try:
+            if gravity_camera is not None and np.all(np.isfinite(gravity_camera)):
+                g = np.array(gravity_camera, dtype=np.float64).reshape(3)
+                n = float(np.linalg.norm(g))
+                if n > 1e-9:
+                    g = g / n
+                    # camera frame: x right, y down. Use (gx, gy) to draw arrow.
+                    gx, gy = float(g[0]), float(g[1])
+                    h, w = panel_line.shape[:2]
+                    # draw at image center
+                    p0 = (int(w * 0.5), int(h * 0.5))
+                    L = int(min(h, w) * 0.22)
+                    p1 = (int(p0[0] + gx * L), int(p0[1] + gy * L))
+                    cv2.arrowedLine(panel_line, p0, p1, (0, 0, 255), 3, tipLength=0.25)
+                    cv2.putText(panel_line, 'g proj', (p0[0] + 8, p0[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 3)
+                    cv2.putText(panel_line, 'g proj', (p0[0] + 8, p0[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+        except Exception:
+            pass
+
         cv2.putText(panel_line, 'Line detection', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4)
         cv2.putText(panel_line, 'Line detection', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-        # 4) 最终结果（类似 vis_node 的 Vision Pose）：平面点投影 + 最终直线 + 坐标轴
+        # 4) 最终结果：只高亮 best_plane（让人一眼知道选中了哪一块） + 坐标轴
         panel_final = frame.color_bgr.copy()
         if best_plane is not None:
             try:
-                panel_final = self._overlay_plane_on_image(panel_final, best_plane, color=(255, 0, 0), alpha=0.35)
+                # highlight selected plane with stronger alpha and distinct color
+                panel_final = self._overlay_plane_on_image(panel_final, best_plane, color=(0, 0, 255), alpha=0.45)
             except Exception:
                 pass
-        if longest_line is not None:
-            try:
-                x1, y1, x2, y2 = [int(v) for v in longest_line]
-                cv2.line(panel_final, (x1, y1), (x2, y2), (0, 255, 255), 3)
-                cv2.circle(panel_final, (x1, y1), 4, (0, 0, 255), -1)
-                cv2.circle(panel_final, (x2, y2), 4, (0, 255, 0), -1)
-            except Exception:
-                pass
+
+        # NOTE: do NOT draw longest_line on panel_final (per request)
+
         if rvec is not None and tvec is not None and self.camera_matrix is not None and self.dist_coeffs is not None:
             try:
                 cv2.drawFrameAxes(
@@ -378,8 +395,13 @@ class VisionPoseDebugVizNode(Node):
         return np.vstack([top, bot])
 
     def _overlay_plane_on_image(self, image_bgr: np.ndarray, plane: dict, color=(255, 0, 0), alpha: float = 0.35) -> np.ndarray:
-        """Project plane 3D points onto image and alpha-blend (vis_node-like)."""
-        if self.camera_matrix is None:
+        """Project plane 3D points onto image and alpha-blend (vis_node-like).
+
+        This follows the same approach as `vis_pkg/vis_pkg/vis_node.py`:
+        - cv2.projectPoints with rvec/tvec = zeros (points are in camera frame)
+        - draw circles on an overlay and alpha-blend
+        """
+        if self.camera_matrix is None or self.dist_coeffs is None:
             return image_bgr
 
         pts3 = None
@@ -393,26 +415,39 @@ class VisionPoseDebugVizNode(Node):
         if pts3 is None or pts3.size == 0:
             return image_bgr
 
+        pts3 = np.asarray(pts3, dtype=np.float64).reshape(-1, 3)
         valid = np.isfinite(pts3).all(axis=1) & (pts3[:, 2] > 1e-6)
         pts3 = pts3[valid]
         if pts3.size == 0:
             return image_bgr
 
-        fx, fy = self.camera_matrix[0, 0], self.camera_matrix[1, 1]
-        cx, cy = self.camera_matrix[0, 2], self.camera_matrix[1, 2]
-        u = (fx * (pts3[:, 0] / pts3[:, 2]) + cx).astype(np.int32)
-        v = (fy * (pts3[:, 1] / pts3[:, 2]) + cy).astype(np.int32)
+        try:
+            pts2d, _ = cv2.projectPoints(
+                pts3,
+                np.zeros(3, dtype=np.float64),
+                np.zeros(3, dtype=np.float64),
+                self.camera_matrix,
+                self.dist_coeffs,
+            )
+            pts2d = np.squeeze(pts2d).astype(np.int32)
 
-        h, w = image_bgr.shape[:2]
-        inside = (u >= 0) & (u < w) & (v >= 0) & (v < h)
-        u = u[inside]
-        v = v[inside]
-        if u.size == 0:
+            if pts2d.ndim == 1:
+                pts2d = np.array([pts2d])
+
+            overlay = image_bgr.copy()
+            h, w = overlay.shape[:2]
+
+            # draw circles (slightly larger to be visible)
+            for x, y in pts2d:
+                x = int(x)
+                y = int(y)
+                if 0 <= x < w and 0 <= y < h:
+                    cv2.circle(overlay, (x, y), 2, color, -1)
+
+            out = cv2.addWeighted(overlay, float(alpha), image_bgr, 1.0 - float(alpha), 0.0)
+            return out
+        except Exception:
             return image_bgr
-
-        overlay = image_bgr.copy()
-        overlay[v, u] = color
-        return cv2.addWeighted(overlay, alpha, image_bgr, 1.0 - alpha, 0.0)
 
     def _write_video(self, frame_bgr: np.ndarray):
         """Lazy-init cv2.VideoWriter and append frame."""

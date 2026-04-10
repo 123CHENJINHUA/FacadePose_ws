@@ -168,7 +168,12 @@ class PlaneDetector:
         return planes
     
     def select_best_plane(self, planes, return_debug: bool = False):
-        """选择最佳平面（最大的平面），并可选返回调试信息。
+        """选择最佳平面，并可选返回调试信息。
+
+        旧逻辑：先按法向量方向分组挑 best group，再在组内按点数(面积)挑最大。
+        新逻辑：对每个 plane 计算综合分数，同时考虑：
+          - 方向相似度（与 camera_vector 对齐程度，带软阈值）
+          - 平面规模（用点数的 log 归一化）
 
         Args:
             planes: list of plane dict
@@ -180,6 +185,7 @@ class PlaneDetector:
         """
         debug = {
             'num_planes': 0,
+            # keep previous fields for compatibility / visualization
             'groups': [],  # list of groups, each group: list of plane indices
             'group_avg_similarity': [],
             'group_best_plane_index': [],
@@ -187,6 +193,12 @@ class PlaneDetector:
             'best_plane_index': None,
             'camera_vector': np.array([0.0, 0.0, -1.0], dtype=np.float64),
             'normal_angle_thresh_deg': 10.0,
+            # new scoring fields
+            'score_mode': 'combined_dir_area',
+            'dir_weight': 0.6,
+            'area_weight': 0.4,
+            'per_plane': [],  # list of dicts per plane: {idx, npts, sim, dir_score, area_score, score}
+            'max_npts': 0,
         }
 
         def _ret(best_plane_, best_idx_):
@@ -201,25 +213,24 @@ class PlaneDetector:
 
         debug['num_planes'] = len(planes)
 
-        best_plane = None
-
-        # 1. Group planes with similar normals (angle < 10 degrees)
+        # ---------- (A) group planes by similar normals (kept for debug/visualization) ----------
         groups: list[list[int]] = []
         representatives: list[np.ndarray] = []
         cos_th = float(np.cos(np.deg2rad(debug['normal_angle_thresh_deg'])))
 
         for i, plane in enumerate(planes):
             n = np.array(plane.get('normal', [np.nan, np.nan, np.nan]), dtype=np.float64).reshape(3)
-            # if invalid normal, put into its own group
             if not np.all(np.isfinite(n)) or np.linalg.norm(n) < 1e-9:
                 groups.append([i])
                 representatives.append(n)
                 continue
 
+            n = n / max(np.linalg.norm(n), 1e-12)
             is_grouped = False
             for gi, repn in enumerate(representatives):
                 if np.all(np.isfinite(repn)) and np.linalg.norm(repn) > 1e-9:
-                    if float(np.dot(n, repn)) > cos_th:
+                    repn_u = repn / max(np.linalg.norm(repn), 1e-12)
+                    if float(np.dot(n, repn_u)) > cos_th:
                         groups[gi].append(i)
                         is_grouped = True
                         break
@@ -229,51 +240,96 @@ class PlaneDetector:
 
         debug['groups'] = [g[:] for g in groups]
 
-        # 2. Calculate average similarity for each group and find the best group
-        best_group = None
-        best_group_idx = None
-        max_avg_similarity = -1e9
-        camera_vector = debug['camera_vector']
+        # group avg similarity (same as before)
+        camera_vector = np.array(debug['camera_vector'], dtype=np.float64).reshape(3)
+        if np.linalg.norm(camera_vector) > 1e-9:
+            camera_vector = camera_vector / np.linalg.norm(camera_vector)
 
+        max_avg_similarity = -1e9
+        best_group_idx = None
         for gi, group in enumerate(groups):
             sims = []
             for idx in group:
                 n = np.array(planes[idx].get('normal', [np.nan, np.nan, np.nan]), dtype=np.float64).reshape(3)
-                if np.all(np.isfinite(n)):
-                    sims.append(float(np.dot(n, camera_vector)))
+                if not np.all(np.isfinite(n)) or np.linalg.norm(n) < 1e-9:
+                    continue
+                n = n / max(np.linalg.norm(n), 1e-12)
+                sims.append(float(np.dot(n, camera_vector)))
             avg_similarity = float(np.mean(sims)) if len(sims) else float('nan')
             debug['group_avg_similarity'].append(avg_similarity)
-
             if np.isfinite(avg_similarity) and avg_similarity > max_avg_similarity:
                 max_avg_similarity = avg_similarity
-                best_group = group
                 best_group_idx = gi
-
         debug['best_group_index'] = best_group_idx
 
-        # 3. From the best group, select the plane with the most points
-        best_plane_idx = None
-        if best_group:
-            # compute argmax by pcd points length
-            best_len = -1
-            for idx in best_group:
-                pcd = planes[idx].get('pcd', None)
-                try:
-                    npts = len(pcd.points)
-                except Exception:
-                    npts = 0
-                if npts > best_len:
-                    best_len = npts
-                    best_plane_idx = idx
-
+        # group best plane index by size (same as before; best effort)
+        try:
             debug['group_best_plane_index'] = [
-                (max(g, key=lambda j: (len(planes[j].get('pcd', []).points) if hasattr(planes[j].get('pcd', None), 'points') else 0)))
+                (max(g, key=lambda j: (len(planes[j].get('pcd', None).points) if hasattr(planes[j].get('pcd', None), 'points') else 0)))
                 if g else None
                 for g in groups
             ]
+        except Exception:
+            debug['group_best_plane_index'] = [None for _ in groups]
 
-            best_plane = planes[best_plane_idx] if best_plane_idx is not None else None
+        # ---------- (B) combined scoring per-plane ----------
+        npts_list: list[int] = []
+        for p in planes:
+            pcd = p.get('pcd', None)
+            try:
+                npts = int(len(pcd.points))
+            except Exception:
+                # fallback: if some caller passes ndarray points
+                try:
+                    arr = np.asarray(pcd)
+                    npts = int(arr.shape[0])
+                except Exception:
+                    npts = 0
+            npts_list.append(max(npts, 0))
 
-        return _ret(best_plane, best_plane_idx)
+        max_npts = int(max(npts_list)) if npts_list else 0
+        debug['max_npts'] = max_npts
+
+        # direction soft-threshold
+        cos0 = float(np.cos(np.deg2rad(debug['normal_angle_thresh_deg'])))
+
+        best_idx = None
+        best_score = -1e18
+        for i, plane in enumerate(planes):
+            n = np.array(plane.get('normal', [np.nan, np.nan, np.nan]), dtype=np.float64).reshape(3)
+            n_norm = float(np.linalg.norm(n))
+            if not np.all(np.isfinite(n)) or n_norm < 1e-9:
+                sim = float('nan')
+                dir_score = 0.0
+            else:
+                n_u = n / n_norm
+                sim = float(np.clip(np.dot(n_u, camera_vector), -1.0, 1.0))
+                # soft threshold to [0, 1]
+                dir_score = float(np.clip((sim - cos0) / max(1.0 - cos0, 1e-9), 0.0, 1.0))
+
+            npts = npts_list[i]
+            if max_npts <= 0:
+                area_score = 0.0
+            else:
+                # log-normalized size in [0, 1]
+                area_score = float(np.log1p(npts) / max(np.log1p(max_npts), 1e-9))
+
+            score = float(debug['dir_weight']) * dir_score + float(debug['area_weight']) * area_score
+
+            debug['per_plane'].append({
+                'idx': i,
+                'npts': int(npts),
+                'sim': float(sim) if np.isfinite(sim) else float('nan'),
+                'dir_score': float(dir_score),
+                'area_score': float(area_score),
+                'score': float(score),
+            })
+
+            if score > best_score:
+                best_score = score
+                best_idx = i
+
+        best_plane = planes[best_idx] if best_idx is not None else None
+        return _ret(best_plane, best_idx)
 
 
